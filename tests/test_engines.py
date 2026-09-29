@@ -128,7 +128,21 @@ def test_collect_mineru_artifacts_warns_when_json_missing(tmp_path: Path):
     codes = {w.code for w in artifacts.warnings}
     assert "missing_content_list" in codes
     assert "missing_middle" in codes
+    assert "missing_images" in codes
     assert all(isinstance(w, WarningItem) for w in artifacts.warnings)
+
+
+def test_collect_prefers_stem_markdown(tmp_path: Path):
+    stem = "demo"
+    method = "auto"
+    work = tmp_path / stem / method
+    work.mkdir(parents=True)
+    (work / "aaa_other.md").write_text("# other\n", encoding="utf-8")
+    (work / f"{stem}.md").write_text("# preferred\n", encoding="utf-8")
+    (work / "zzz_extra.md").write_text("# extra\n", encoding="utf-8")
+
+    artifacts = collect_mineru_artifacts(tmp_path, stem=stem, method=method, device="cpu")
+    assert artifacts.markdown == "# preferred\n"
 
 
 def test_is_npu_available_respects_disable_probe(monkeypatch: pytest.MonkeyPatch):

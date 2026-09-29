@@ -25,8 +25,9 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         input_path: Path,
         ocr: OcrMode,
         file_kind: FileKind | None = None,
+        device: str | None = None,
     ) -> MinerUArtifacts:
-        _ = (self, task_id, ocr, file_kind)
+        _ = (self, task_id, ocr, file_kind, device)
         images_dir = input_path.parent / "fake_images"
         images_dir.mkdir(parents=True, exist_ok=True)
         fig = images_dir / "fig1.png"

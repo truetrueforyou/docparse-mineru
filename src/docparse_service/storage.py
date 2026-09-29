@@ -20,13 +20,24 @@ class LocalObjectStorage(ObjectStorage):
         self.root.mkdir(parents=True, exist_ok=True)
 
     def put_bytes(self, key: str, data: bytes, content_type: str) -> str:
-        target = self.root / key
+        _ = content_type
+        target = self._resolve_under_root(key)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
         return f"local://{key}"
 
     def get_bytes(self, key: str) -> bytes:
-        return (self.root / key).read_bytes()
+        return self._resolve_under_root(key).read_bytes()
+
+    def _resolve_under_root(self, key: str) -> Path:
+        key_path = Path(key)
+        if key_path.is_absolute() or ".." in key_path.parts:
+            raise ValueError("INVALID_STORAGE_KEY")
+        root = self.root.resolve()
+        target = (root / key).resolve()
+        if not target.is_relative_to(root):
+            raise ValueError("INVALID_STORAGE_KEY")
+        return target
 
 
 class MinioObjectStorage(ObjectStorage):

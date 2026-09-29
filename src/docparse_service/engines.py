@@ -55,6 +55,12 @@ def run_engine_command(command: list[str], env_overrides: dict[str, str] | None 
         )
 
 
+class NpuUnavailableError(RuntimeError):
+    """Raised when device=npu is forced but Ascend NPU runtime is unavailable."""
+
+    error_code = "NPU_UNAVAILABLE"
+
+
 def collect_mineru_artifacts(
     output_dir: Path,
     *,
@@ -71,10 +77,8 @@ def collect_mineru_artifacts(
             raise RuntimeError(f"MinerU produced no Markdown output under {output_dir}")
         work_dir = md_files[0].parent
 
-    md_candidates = sorted(work_dir.glob("*.md"))
-    if not md_candidates:
-        raise RuntimeError(f"MinerU produced no Markdown output in {work_dir}")
-    markdown = md_candidates[0].read_text(encoding="utf-8")
+    md_path = _select_markdown_path(work_dir, stem)
+    markdown = md_path.read_text(encoding="utf-8")
     if not markdown.strip():
         raise RuntimeError(f"MinerU produced empty Markdown output in {work_dir}")
 
@@ -102,6 +106,13 @@ def collect_mineru_artifacts(
     if images_dir.is_dir():
         for image_path in sorted(p for p in images_dir.iterdir() if p.is_file()):
             image_files.append((image_path.name, image_path))
+    if not images_dir.is_dir() or not image_files:
+        warnings.append(
+            WarningItem(
+                code="missing_images",
+                message=f"images/ directory missing or empty under {work_dir}",
+            )
+        )
 
     return MinerUArtifacts(
         markdown=markdown,
@@ -114,6 +125,24 @@ def collect_mineru_artifacts(
             "mineru_backend": "pipeline",
         },
     )
+
+
+def _select_markdown_path(work_dir: Path, stem: str) -> Path:
+    md_candidates = sorted(p for p in work_dir.glob("*.md") if p.is_file())
+    if not md_candidates:
+        raise RuntimeError(f"MinerU produced no Markdown output in {work_dir}")
+    exact = work_dir / f"{stem}.md"
+    if exact.is_file():
+        return exact
+    by_stem = [p for p in md_candidates if p.stem == stem]
+    if by_stem:
+        return by_stem[0]
+
+    def closeness(path: Path) -> tuple[int, str]:
+        common = len(os.path.commonprefix([path.stem, stem]))
+        return (-common, path.name)
+
+    return sorted(md_candidates, key=closeness)[0]
 
 
 def _read_first_bytes(directory: Path, pattern: str) -> bytes | None:
@@ -146,15 +175,19 @@ class MinerUEngine:
         input_path: Path,
         ocr: OcrMode,
         file_kind: FileKind | None = None,
+        device: str | None = None,
     ) -> MinerUArtifacts:
         _ = file_kind  # reserved for callers; unused by MinerU CLI adapter
         self._ensure_command_available()
         method = _OCR_METHOD[ocr]
-        selected = self._select_device()
+        configured = (device if device is not None else self.device).strip().lower()
+        selected = self._select_device(device)
         try:
             return self._parse_once(input_path, task_id, selected, method)
+        except NpuUnavailableError:
+            raise
         except RuntimeError as exc:
-            if selected != "npu" or self.device.strip().lower() != "auto":
+            if selected != "npu" or configured != "auto":
                 raise
             arts = self._parse_once(input_path, task_id, "cpu", method)
             arts.metadata["mineru_device"] = "cpu"
@@ -190,17 +223,19 @@ class MinerUEngine:
             device=device,
         )
 
-    def _select_device(self) -> str:
-        configured = self.device.lower().strip()
+    def _select_device(self, device_override: str | None = None) -> str:
+        configured = (device_override if device_override is not None else self.device).lower().strip()
         if configured == "cpu":
             return "cpu"
         if configured == "npu":
             if not is_npu_available(disable_probe=self.disable_npu_probe):
-                raise RuntimeError("MinerU NPU was requested but Ascend NPU runtime is not available")
+                raise NpuUnavailableError(
+                    "MinerU NPU was requested but Ascend NPU runtime is not available"
+                )
             return "npu"
         if configured == "auto":
             return "npu" if is_npu_available(disable_probe=self.disable_npu_probe) else "cpu"
-        raise RuntimeError(f"Unsupported MinerU device setting: {self.device}")
+        raise RuntimeError(f"Unsupported MinerU device setting: {configured}")
 
     def _extra_args_for_device(self, device: str) -> str:
         if device == "npu":

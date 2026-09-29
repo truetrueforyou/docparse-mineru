@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from docparse_service.config import Settings
 from docparse_service.db import ParseTask
-from docparse_service.engines import MinerUEngine
+from docparse_service.engines import MinerUEngine, NpuUnavailableError
 from docparse_service.file_types import detect_file_kind, is_supported
 from docparse_service.schemas import (
     ArtifactPaths,
@@ -24,6 +24,20 @@ from docparse_service.storage import ObjectStorage, make_storage
 def _guess_mime(name: str) -> str:
     mime, _ = mimetypes.guess_type(name)
     return mime or "application/octet-stream"
+
+
+def sanitize_upload_filename(filename: str) -> str:
+    """Return a basename-only upload name safe for storage keys and temp paths."""
+    name = Path(filename).name
+    if (
+        not name
+        or name in {".", ".."}
+        or "/" in name
+        or "\\" in name
+        or "\x00" in name
+    ):
+        raise ValueError("INVALID_FILENAME")
+    return name
 
 
 class ParseService:
@@ -46,7 +60,8 @@ class ParseService:
         content_type: str | None,
         content: bytes,
     ) -> ParseTask:
-        file_kind = detect_file_kind(filename, content_type)
+        safe_name = sanitize_upload_filename(filename)
+        file_kind = detect_file_kind(safe_name, content_type)
         if not is_supported(file_kind):
             raise ValueError("UNSUPPORTED_FILE_TYPE")
         if len(content) > self.settings.max_file_size_mb * 1024 * 1024:
@@ -54,14 +69,14 @@ class ParseService:
 
         task_id = uuid4().hex
         file_id = uuid4().hex
-        input_key = f"tasks/{task_id}/input/{filename}"
+        input_key = f"tasks/{task_id}/input/{safe_name}"
         self.storage.put_bytes(input_key, content, content_type or "application/octet-stream")
 
         with self.session_factory() as session:
             task = ParseTask(
                 task_id=task_id,
                 file_id=file_id,
-                file_name=filename,
+                file_name=safe_name,
                 file_type=file_kind.value,
                 engine="mineru",
                 status=TaskStatus.QUEUED.value,
@@ -96,6 +111,10 @@ class ParseService:
                 task.images_prefix = result.artifacts.images_dir
                 task.error_code = None
                 task.error_message = None
+            except NpuUnavailableError as exc:
+                task.status = TaskStatus.FAILED.value
+                task.error_code = NpuUnavailableError.error_code
+                task.error_message = str(exc)
             except Exception as exc:  # noqa: BLE001 - store operational failure as task failure
                 task.status = TaskStatus.FAILED.value
                 task.error_code = "ENGINE_FAILED"
@@ -151,67 +170,66 @@ class ParseService:
         device_override: DeviceMode | None,
     ) -> TaskResult:
         prefix = f"tasks/{task.task_id}/result"
-        previous_device = self.engine.device
-        if device_override is not None:
-            self.engine.device = device_override.value
-        try:
-            with tempfile.TemporaryDirectory(prefix="docparse-") as tmp:
-                input_path = Path(tmp) / task.file_name
-                input_path.write_bytes(content)
-                arts = self.engine.parse(
-                    task_id=task.task_id,
-                    input_path=input_path,
-                    ocr=ocr,
-                    file_kind=FileKind(task.file_type),
-                )
-                # Upload while TemporaryDirectory is still alive (image Paths stay valid).
+        safe_name = sanitize_upload_filename(task.file_name)
+        with tempfile.TemporaryDirectory(prefix="docparse-") as tmp:
+            tmp_root = Path(tmp).resolve()
+            input_path = (tmp_root / safe_name).resolve()
+            if not input_path.is_relative_to(tmp_root):
+                raise ValueError("INVALID_FILENAME")
+            input_path.write_bytes(content)
+            arts = self.engine.parse(
+                task_id=task.task_id,
+                input_path=input_path,
+                ocr=ocr,
+                file_kind=FileKind(task.file_type),
+                device=device_override.value if device_override is not None else None,
+            )
+            # Upload while TemporaryDirectory is still alive (image Paths stay valid).
+            self.storage.put_bytes(
+                f"{prefix}/result.md",
+                arts.markdown.encode("utf-8"),
+                "text/markdown",
+            )
+            markdown_key = f"{prefix}/result.md"
+            content_list_key = None
+            middle_key = None
+            images_dir = None
+            if arts.content_list_bytes:
+                content_list_key = f"{prefix}/content_list.json"
                 self.storage.put_bytes(
-                    f"{prefix}/result.md",
-                    arts.markdown.encode("utf-8"),
-                    "text/markdown",
-                )
-                markdown_key = f"{prefix}/result.md"
-                content_list_key = None
-                middle_key = None
-                images_dir = None
-                if arts.content_list_bytes:
-                    content_list_key = f"{prefix}/content_list.json"
-                    self.storage.put_bytes(
-                        content_list_key,
-                        arts.content_list_bytes,
-                        "application/json",
-                    )
-                if arts.middle_bytes:
-                    middle_key = f"{prefix}/middle.json"
-                    self.storage.put_bytes(middle_key, arts.middle_bytes, "application/json")
-                if arts.image_files:
-                    images_dir = f"{prefix}/images/"
-                    for name, path in arts.image_files:
-                        self.storage.put_bytes(
-                            f"{prefix}/images/{name}",
-                            path.read_bytes(),
-                            _guess_mime(name),
-                        )
-                task_result = TaskResult(
-                    task_id=task.task_id,
-                    file_id=task.file_id,
-                    file_name=task.file_name,
-                    file_type=task.file_type,
-                    status=TaskStatus.SUCCEEDED,
-                    metadata=arts.metadata,
-                    artifacts=ArtifactPaths(
-                        markdown=markdown_key,
-                        content_list=content_list_key,
-                        middle=middle_key,
-                        images_dir=images_dir,
-                    ),
-                    warnings=arts.warnings,
-                )
-                self.storage.put_bytes(
-                    f"{prefix}/result.json",
-                    task_result.model_dump_json(indent=2).encode("utf-8"),
+                    content_list_key,
+                    arts.content_list_bytes,
                     "application/json",
                 )
-                return task_result
-        finally:
-            self.engine.device = previous_device
+            if arts.middle_bytes:
+                middle_key = f"{prefix}/middle.json"
+                self.storage.put_bytes(middle_key, arts.middle_bytes, "application/json")
+            if arts.image_files:
+                images_dir = f"{prefix}/images/"
+                for name, path in arts.image_files:
+                    self.storage.put_bytes(
+                        f"{prefix}/images/{name}",
+                        path.read_bytes(),
+                        _guess_mime(name),
+                    )
+            task_result = TaskResult(
+                task_id=task.task_id,
+                file_id=task.file_id,
+                file_name=task.file_name,
+                file_type=task.file_type,
+                status=TaskStatus.SUCCEEDED,
+                metadata=arts.metadata,
+                artifacts=ArtifactPaths(
+                    markdown=markdown_key,
+                    content_list=content_list_key,
+                    middle=middle_key,
+                    images_dir=images_dir,
+                ),
+                warnings=arts.warnings,
+            )
+            self.storage.put_bytes(
+                f"{prefix}/result.json",
+                task_result.model_dump_json(indent=2).encode("utf-8"),
+                "application/json",
+            )
+            return task_result

@@ -4,9 +4,9 @@ import pytest
 
 from docparse_service.config import Settings
 from docparse_service.db import make_session_factory
-from docparse_service.engines import MinerUEngine
-from docparse_service.schemas import FileKind, MinerUArtifacts, OcrMode, TaskStatus
-from docparse_service.service import ParseService
+from docparse_service.engines import MinerUEngine, NpuUnavailableError
+from docparse_service.schemas import DeviceMode, FileKind, MinerUArtifacts, OcrMode, TaskStatus
+from docparse_service.service import ParseService, sanitize_upload_filename
 
 
 def test_run_task_persists_artifacts_before_temp_cleanup(
@@ -28,8 +28,9 @@ def test_run_task_persists_artifacts_before_temp_cleanup(
         input_path: Path,
         ocr: OcrMode,
         file_kind: FileKind | None = None,
+        device: str | None = None,
     ) -> MinerUArtifacts:
-        _ = (self, task_id, ocr, file_kind)
+        _ = (self, task_id, ocr, file_kind, device)
         images_dir = input_path.parent / "fake_images"
         images_dir.mkdir(parents=True, exist_ok=True)
         fig = images_dir / "fig1.png"
@@ -79,3 +80,108 @@ def test_run_task_persists_artifacts_before_temp_cleanup(
     assert result["artifacts"]["markdown"] == f"{prefix}/result.md"
     assert result["artifacts"]["images_dir"] == f"{prefix}/images/"
     assert service.get_markdown(task.task_id).startswith("# Persisted")
+
+
+def test_sanitize_upload_filename_rejects_traversal() -> None:
+    assert sanitize_upload_filename("../../escape.pdf") == "escape.pdf"
+    assert sanitize_upload_filename(r"..\..\escape.pdf") == "escape.pdf"
+    assert sanitize_upload_filename("docs/sample.pdf") == "sample.pdf"
+    with pytest.raises(ValueError, match="INVALID_FILENAME"):
+        sanitize_upload_filename("")
+    with pytest.raises(ValueError, match="INVALID_FILENAME"):
+        sanitize_upload_filename(".")
+    with pytest.raises(ValueError, match="INVALID_FILENAME"):
+        sanitize_upload_filename("..")
+
+
+def test_create_task_stores_basename_only(tmp_path: Path) -> None:
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'test.db'}",
+        storage_backend="local",
+        local_storage_dir=str(tmp_path / "objects"),
+        disable_npu_probe=True,
+    )
+    service = ParseService(settings, make_session_factory(settings.database_url))
+    task = service.create_task(
+        filename="../../nested/escape.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 sample",
+    )
+    assert task.file_name == "escape.pdf"
+    assert task.input_key.endswith("/input/escape.pdf")
+    assert ".." not in task.input_key
+    assert (tmp_path / "objects" / task.input_key).is_file()
+    assert not (tmp_path / "escape.pdf").exists()
+
+
+def test_device_override_does_not_mutate_shared_engine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'test.db'}",
+        storage_backend="local",
+        local_storage_dir=str(tmp_path / "objects"),
+        mineru_device="auto",
+        disable_npu_probe=True,
+    )
+    service = ParseService(settings, make_session_factory(settings.database_url))
+    seen: list[str | None] = []
+
+    def fake_parse(
+        self: MinerUEngine,
+        task_id: str,
+        input_path: Path,
+        ocr: OcrMode,
+        file_kind: FileKind | None = None,
+        device: str | None = None,
+    ) -> MinerUArtifacts:
+        _ = (task_id, input_path, ocr, file_kind)
+        seen.append(device)
+        assert self.device == "auto"
+        return MinerUArtifacts(
+            markdown="# ok\n",
+            content_list_bytes=None,
+            middle_bytes=None,
+            image_files=[],
+            warnings=[],
+            metadata={"mineru_device": device or self.device, "mineru_backend": "pipeline"},
+        )
+
+    monkeypatch.setattr(MinerUEngine, "parse", fake_parse)
+    task = service.create_task("sample.pdf", "application/pdf", b"%PDF-1.4")
+    service.run_task(task.task_id, OcrMode.AUTO, DeviceMode.CPU)
+    assert seen == ["cpu"]
+    assert service.engine.device == "auto"
+
+
+def test_forced_npu_unavailable_maps_error_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'test.db'}",
+        storage_backend="local",
+        local_storage_dir=str(tmp_path / "objects"),
+        disable_npu_probe=True,
+    )
+    service = ParseService(settings, make_session_factory(settings.database_url))
+
+    def fake_parse(
+        self: MinerUEngine,
+        task_id: str,
+        input_path: Path,
+        ocr: OcrMode,
+        file_kind: FileKind | None = None,
+        device: str | None = None,
+    ) -> MinerUArtifacts:
+        _ = (self, task_id, input_path, ocr, file_kind)
+        if (device or self.device) == "npu":
+            raise NpuUnavailableError("Ascend NPU runtime is not available")
+        raise AssertionError("unexpected device")
+
+    monkeypatch.setattr(MinerUEngine, "parse", fake_parse)
+    task = service.create_task("sample.pdf", "application/pdf", b"%PDF-1.4")
+    service.run_task(task.task_id, OcrMode.AUTO, DeviceMode.NPU)
+    stored = service.get_task(task.task_id)
+    assert stored is not None
+    assert stored.status == TaskStatus.FAILED.value
+    assert stored.error_code == "NPU_UNAVAILABLE"

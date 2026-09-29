@@ -66,6 +66,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             code = str(exc)
             if code == "FILE_TOO_LARGE":
                 raise api_error(413, code, "File exceeds configured size limit") from exc
+            if code == "INVALID_FILENAME":
+                raise api_error(400, code, "Upload filename is invalid") from exc
             raise api_error(400, "UNSUPPORTED_FILE_TYPE", "File type is not supported in V1") from exc
 
         if resolved_settings.run_tasks_inline:
