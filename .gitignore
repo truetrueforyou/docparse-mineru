@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+data/
+.env
+docker-compose.npu.override.yml
+*.pyc
+*.egg-info/
