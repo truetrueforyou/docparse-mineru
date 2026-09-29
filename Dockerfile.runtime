@@ -1,0 +1,22 @@
+FROM mineru:npu-vllm-3.4
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    MINERU_MODEL_SOURCE=local \
+    MINERU_LMDEPLOY_DEVICE=ascend \
+    DOCPARSE_MINERU_DEVICE=auto \
+    DOCPARSE_MINERU_CPU_EXTRA_ARGS="-b pipeline -d cpu --source local" \
+    DOCPARSE_MINERU_NPU_EXTRA_ARGS="-b pipeline -d npu --source local" \
+    VIRTUAL_ENV=/opt/docparse-venv \
+    PATH="/opt/docparse-venv/bin:$PATH"
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY src ./src
+
+RUN python3 -m venv /opt/docparse-venv \
+ && /opt/docparse-venv/bin/pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple .
+
+EXPOSE 8000
+ENTRYPOINT []
+CMD ["/opt/docparse-venv/bin/python", "-m", "uvicorn", "docparse_service.app:app", "--host", "0.0.0.0", "--port", "8000"]

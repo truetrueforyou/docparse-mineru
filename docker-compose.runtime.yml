@@ -1,0 +1,26 @@
+services:
+  docparse-mineru34:
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime
+    image: docparse-mineru34:runtime
+    container_name: docparse-mineru34
+    environment:
+      MINERU_MODEL_SOURCE: local
+      MINERU_LMDEPLOY_DEVICE: ascend
+      DOCPARSE_MINERU_DEVICE: auto
+      DOCPARSE_MINERU_CPU_EXTRA_ARGS: "-b pipeline -d cpu --source local"
+      DOCPARSE_MINERU_NPU_EXTRA_ARGS: "-b pipeline -d npu --source local"
+    ports:
+      - "18012:8000"
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./data:/app/data
+      - /usr/local/Ascend:/usr/local/Ascend:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health', timeout=5).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
