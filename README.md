@@ -57,6 +57,10 @@ The compose file mounts `/usr/local/Ascend` read-only and uses `security_opt: no
 # optional: DOCPARSE_SMOKE_DOCX=0 ./scripts/api_smoke_remote.sh
 ```
 
+## Ascend server acceptance (manual)
+
+On Atlas 800T A2, run the steps in [`verification_log.md`](verification_log.md), record outputs, and commit the filled checklist. All steps start as **PENDING** until verified on the NPU host.
+
 ## Artifact paths
 
 Local storage default: `./data/objects` (compose mounts `./data` → `/app/data`).
