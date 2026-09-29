@@ -8,3 +8,9 @@ def test_pdf_and_docx_supported():
 
 def test_epub_unsupported():
     assert not is_supported(detect_file_kind("a.epub", None))
+
+
+def test_epub_with_misleading_content_type_stays_unsupported():
+    kind = detect_file_kind("a.epub", "application/pdf")
+    assert kind is FileKind.UNSUPPORTED
+    assert not is_supported(kind)

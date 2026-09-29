@@ -27,6 +27,8 @@ def detect_file_kind(name: str, content_type: str | None) -> FileKind:
         return FileKind.IMAGE
     if ext in _OFFICE_EXTENSIONS:
         return _OFFICE_EXTENSIONS[ext]
+    if ext:
+        return FileKind.UNSUPPORTED
     if content_type:
         normalized = content_type.split(";", 1)[0].strip().lower()
         if normalized in _CONTENT_TYPE_MAP:
