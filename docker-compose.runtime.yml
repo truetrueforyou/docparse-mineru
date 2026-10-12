@@ -8,19 +8,30 @@ services:
     environment:
       MINERU_MODEL_SOURCE: local
       MINERU_LMDEPLOY_DEVICE: ascend
-      DOCPARSE_MINERU_DEVICE: auto
-      DOCPARSE_MINERU_CPU_EXTRA_ARGS: "-b pipeline -d cpu --source local"
-      DOCPARSE_MINERU_NPU_EXTRA_ARGS: "-b pipeline -d npu --source local"
+      # With override mapping host davinci3 -> container davinci0, use logical 0.
+      ASCEND_RT_VISIBLE_DEVICES: "0"
+      DOCPARSE_MINERU_DEVICE: npu
+      DOCPARSE_MINERU_CPU_EXTRA_ARGS: "-b pipeline --device cpu --source local"
+      DOCPARSE_MINERU_NPU_EXTRA_ARGS: "-b pipeline --device npu --source local"
+    networks:
+      - shared
     ports:
       - "18012:8000"
     security_opt:
       - no-new-privileges:true
     volumes:
       - ./data:/app/data
-      - /usr/local/Ascend:/usr/local/Ascend:ro
+      # Driver only (libascend_hal.so). Do NOT mount entire /usr/local/Ascend —
+      # that overlays image toolkit/nnal and breaks aclnn (ReduceSum 161002).
+      - /usr/local/Ascend/driver:/usr/local/Ascend/driver:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health', timeout=5).read()"]
       interval: 30s
       timeout: 5s
       retries: 3
+
+networks:
+  shared:
+    external: true
+    name: docparse-service_default

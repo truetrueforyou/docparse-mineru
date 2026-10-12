@@ -7,3 +7,4 @@ data/
 docker-compose.npu.override.yml
 *.pyc
 *.egg-info/
+.idea/

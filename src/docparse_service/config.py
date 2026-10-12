@@ -21,8 +21,14 @@ class Settings(BaseSettings):
     mineru_command: str = Field(default="mineru")
     mineru_extra_args: str = Field(default="")
     mineru_device: str = Field(default="auto")
-    mineru_cpu_extra_args: str = Field(default="-b pipeline -d cpu --source local")
-    mineru_npu_extra_args: str = Field(default="-b pipeline -d npu --source local")
+    # Prefer long --device: MinerU 3.4.x may ignore short -d for CPU on Ascend.
+    # Real CPU force also requires MINERU_DEVICE_MODE=cpu (set in engines.py).
+    mineru_cpu_extra_args: str = Field(
+        default="-b pipeline --device cpu --source local"
+    )
+    mineru_npu_extra_args: str = Field(
+        default="-b pipeline --device npu --source local"
+    )
     disable_npu_probe: bool = Field(default=False)
 
     @property

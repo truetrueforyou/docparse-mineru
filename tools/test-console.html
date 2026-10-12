@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Docparse MinerU 3.4 测试台</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs" type="module"></script>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a222c;
+      --panel-2: #232d3a;
+      --border: #2f3b4a;
+      --text: #e7eef7;
+      --muted: #93a4b8;
+      --accent: #3d9cfd;
+      --accent-2: #2a7fd4;
+      --ok: #3ecf8e;
+      --warn: #e6b84d;
+      --err: #f07178;
+      --mono: "Cascadia Code", "SF Mono", Consolas, monospace;
+      --sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--sans);
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #1b3350 0%, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #163028 0%, transparent 50%),
+        var(--bg);
+    }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 24px 18px 48px; }
+    h1 { margin: 0 0 6px; font-size: 1.5rem; font-weight: 650; }
+    .sub { margin: 0 0 18px; color: var(--muted); font-size: 0.92rem; }
+    .grid { display: grid; gap: 14px; }
+    @media (min-width: 960px) {
+      .grid-top { grid-template-columns: 1.15fr 0.85fr; }
+    }
+    .card {
+      background: color-mix(in srgb, var(--panel) 92%, transparent);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 0.98rem;
+      font-weight: 600;
+      color: #c9d7e8;
+    }
+    label { display: block; margin: 0 0 5px; font-size: 0.78rem; color: var(--muted); }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 10px; }
+    .field { flex: 1 1 160px; min-width: 120px; }
+    input[type="text"], input[type="url"], select, input[type="file"] {
+      width: 100%;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font: inherit;
+    }
+    button {
+      border: 0; border-radius: 8px; padding: 9px 13px;
+      font: inherit; font-weight: 600; cursor: pointer;
+      background: var(--accent); color: #041018;
+    }
+    button:hover { background: var(--accent-2); color: #fff; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    button.ghost {
+      background: transparent; color: var(--text);
+      border: 1px solid var(--border);
+    }
+    button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+    button.ghost.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+    }
+    .status-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
+      border: 1px solid var(--border); background: var(--panel-2);
+    }
+    .status-pill.ok { color: var(--ok); }
+    .status-pill.warn { color: var(--warn); }
+    .status-pill.err { color: var(--err); }
+    .meta {
+      display: grid; gap: 8px;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      margin-top: 10px; font-size: 0.84rem;
+    }
+    .meta div {
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 10px;
+    }
+    .meta span { display: block; color: var(--muted); font-size: 0.72rem; margin-bottom: 2px; }
+    .meta code { font-family: var(--mono); font-size: 0.78rem; word-break: break-all; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .log, .json-view {
+      margin: 0; max-height: 240px; overflow: auto;
+      font-family: var(--mono); font-size: 0.75rem; line-height: 1.45;
+      white-space: pre-wrap; word-break: break-word;
+      background: #0b1016; border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 12px; color: #b7c7d9;
+    }
+    .json-view { max-height: 520px; }
+    .hint { margin-top: 8px; color: var(--muted); font-size: 0.78rem; }
+    .md-view {
+      max-height: 560px; overflow: auto;
+      background: #0b1016; border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px 16px; line-height: 1.55;
+    }
+    .md-view h1, .md-view h2, .md-view h3 { margin: 0.9em 0 0.4em; }
+    .md-view p { margin: 0.55em 0; }
+    .md-view img {
+      max-width: 100%; height: auto; border-radius: 6px;
+      border: 1px solid var(--border); background: #111;
+    }
+    .md-view code {
+      font-family: var(--mono); font-size: 0.85em;
+      background: #1a2430; padding: 1px 5px; border-radius: 4px;
+    }
+    .md-view pre {
+      background: #121820; border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px; overflow: auto;
+    }
+    .md-view table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 0.9em; }
+    .md-view th, .md-view td { border: 1px solid var(--border); padding: 6px 8px; }
+    .cl-list { display: grid; gap: 8px; max-height: 560px; overflow: auto; }
+    .cl-item {
+      border: 1px solid var(--border); border-radius: 8px;
+      background: var(--panel-2); padding: 8px 10px; font-size: 0.84rem;
+    }
+    .cl-item .t { color: var(--accent); font-weight: 600; font-size: 0.75rem; }
+    .cl-item .b { color: var(--muted); font-family: var(--mono); font-size: 0.72rem; margin-top: 4px; }
+    .cl-item .c { margin-top: 6px; white-space: pre-wrap; word-break: break-word; }
+    .layout-toolbar {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px;
+    }
+    .chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 0.75rem; color: var(--muted);
+      border: 1px solid var(--border); border-radius: 999px;
+      padding: 3px 8px; cursor: pointer; user-select: none;
+    }
+    .chip input { margin: 0; }
+    .chip .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+    .layout-stage {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      gap: 12px;
+    }
+    @media (max-width: 900px) {
+      .layout-stage { grid-template-columns: 1fr; }
+    }
+    .page-stack {
+      max-height: 720px; overflow: auto;
+      background: #0b1016; border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px;
+    }
+    .page-wrap {
+      position: relative;
+      margin: 0 auto 18px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+      width: fit-content;
+      max-width: 100%;
+    }
+    .page-wrap canvas.page-canvas,
+    .page-wrap img.page-img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+    }
+    .page-wrap canvas.box-canvas {
+      position: absolute; left: 0; top: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+    .page-label {
+      position: absolute; left: 8px; top: 8px; z-index: 2;
+      background: rgba(0,0,0,0.65); color: #fff;
+      font-size: 0.72rem; padding: 2px 7px; border-radius: 4px;
+    }
+    .block-side {
+      max-height: 720px; overflow: auto;
+      border: 1px solid var(--border); border-radius: 8px;
+      background: var(--panel-2); padding: 8px;
+    }
+    .block-side .item {
+      border: 1px solid transparent; border-radius: 6px;
+      padding: 7px 8px; margin-bottom: 6px; cursor: pointer;
+      font-size: 0.78rem;
+    }
+    .block-side .item:hover, .block-side .item.active {
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 10%, transparent);
+    }
+    .block-side .type { font-weight: 700; font-size: 0.72rem; }
+    .block-side .bbox { color: var(--muted); font-family: var(--mono); font-size: 0.68rem; }
+    .hidden { display: none !important; }
+    .panel-body { min-height: 120px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Docparse MinerU 3.4 测试台</h1>
+    <p class="sub">独立 HTML：上传、轮询、渲染 Markdown、预览 content_list / middle，并在原文件上叠加 middle 边界框。</p>
+
+    <div class="card" style="margin-bottom:14px">
+      <h2>服务连接</h2>
+      <div class="row">
+        <div class="field" style="flex:2">
+          <label for="baseUrl">服务 Base URL</label>
+          <input id="baseUrl" type="url" value="http://127.0.0.1:18012" />
+        </div>
+        <button type="button" class="ghost" id="btnHealth">检查健康</button>
+      </div>
+      <div id="healthLine" class="hint">尚未检查</div>
+    </div>
+
+    <div class="grid grid-top" style="margin-bottom:14px">
+      <div class="card">
+        <h2>上传并解析</h2>
+        <div class="row">
+          <div class="field" style="flex:2">
+            <label for="fileInput">文件</label>
+            <input id="fileInput" type="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.docx,.pptx,.xlsx" />
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="ocr">ocr</label>
+            <select id="ocr">
+              <option value="auto" selected>auto</option>
+              <option value="force">force</option>
+              <option value="disable">disable</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="device">device</label>
+            <select id="device">
+              <option value="" selected>（跟随服务）</option>
+              <option value="auto">auto</option>
+              <option value="npu">npu</option>
+              <option value="cpu">cpu</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="pollMs">轮询间隔 ms</label>
+            <input id="pollMs" type="text" value="2000" />
+          </div>
+        </div>
+        <div class="row">
+          <button type="button" id="btnParse">开始解析</button>
+          <button type="button" class="ghost" id="btnStop" disabled>停止轮询</button>
+        </div>
+        <div class="hint">原文件预览使用本页上传的本地文件 + 服务返回的 middle.json，无需额外下载原文接口。</div>
+      </div>
+
+      <div class="card">
+        <h2>任务状态</h2>
+        <div class="row">
+          <div class="field" style="flex:2">
+            <label for="manualTaskId">手动输入 task_id</label>
+            <input id="manualTaskId" type="text" placeholder="粘贴已有 task_id" />
+          </div>
+          <button type="button" class="ghost" id="btnLoadTask">加载任务</button>
+        </div>
+        <div class="hint" style="margin-top:0;margin-bottom:10px">
+          加载已有任务可查看/下载结果。若要「原文件 + 边界框」，请在左侧重新选择同一份源文件（浏览器无法从服务器回读本地上传缓存）。
+        </div>
+        <span id="statusPill" class="status-pill">idle</span>
+        <div class="meta">
+          <div><span>task_id</span><code id="taskId">—</code></div>
+          <div><span>file_id</span><code id="fileId">—</code></div>
+          <div><span>file</span><code id="fileName">—</code></div>
+          <div><span>engine / device</span><code id="engineMeta">—</code></div>
+        </div>
+        <div id="errorBox" class="hint" style="color:var(--err);display:none"></div>
+        <div class="actions" id="downloadBar" style="display:none">
+          <button type="button" class="ghost" data-dl="result">result.json</button>
+          <button type="button" class="ghost" data-dl="markdown">markdown</button>
+          <button type="button" class="ghost" data-dl="content-list">content-list</button>
+          <button type="button" class="ghost" data-dl="middle">middle</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <h2>运行日志</h2>
+      <pre class="log" id="log"></pre>
+    </div>
+
+    <div class="card">
+      <h2>结果预览</h2>
+      <div class="tabs" id="tabs">
+        <button type="button" class="ghost active" data-tab="md">Markdown</button>
+        <button type="button" class="ghost" data-tab="cl">Content List</button>
+        <button type="button" class="ghost" data-tab="middle">Middle JSON</button>
+        <button type="button" class="ghost" data-tab="layout">原文件 + 边界框</button>
+      </div>
+
+      <div id="panel-md" class="panel-body">
+        <div class="md-view" id="mdView">（尚无内容）</div>
+      </div>
+      <div id="panel-cl" class="panel-body hidden">
+        <div class="cl-list" id="clView">（尚无内容）</div>
+      </div>
+      <div id="panel-middle" class="panel-body hidden">
+        <pre class="json-view" id="middleView">（尚无内容）</pre>
+      </div>
+      <div id="panel-layout" class="panel-body hidden">
+        <div class="layout-toolbar">
+          <button type="button" class="ghost" id="btnPrevPage">上一页</button>
+          <span id="pageInfo" class="hint" style="margin:0">页 — / —</span>
+          <button type="button" class="ghost" id="btnNextPage">下一页</button>
+          <label class="chip"><input type="checkbox" id="showAllPages" /> 连续显示全部页</label>
+          <span class="hint" style="margin:0">图层：</span>
+          <label class="chip"><span class="sw" style="background:#3d9cfd"></span><input type="checkbox" class="layer" data-type="text" checked /> text</label>
+          <label class="chip"><span class="sw" style="background:#56d4c5"></span><input type="checkbox" class="layer" data-type="title" checked /> title</label>
+          <label class="chip"><span class="sw" style="background:#3ecf8e"></span><input type="checkbox" class="layer" data-type="image" checked /> image</label>
+          <label class="chip"><span class="sw" style="background:#e6b84d"></span><input type="checkbox" class="layer" data-type="table" checked /> table</label>
+          <label class="chip"><span class="sw" style="background:#c084fc"></span><input type="checkbox" class="layer" data-type="equation" checked /> equation</label>
+          <label class="chip"><span class="sw" style="background:#94a3b8"></span><input type="checkbox" class="layer" data-type="other" checked /> other</label>
+          <label class="chip"><span class="sw" style="background:#f07178"></span><input type="checkbox" class="layer" data-type="discarded" /> discarded</label>
+        </div>
+        <div class="layout-stage">
+          <div class="page-stack" id="pageStack"></div>
+          <div class="block-side" id="blockSide"><div class="hint">选择页后显示块列表</div></div>
+        </div>
+        <div class="hint" id="layoutHint">解析成功且本地保留上传文件后，可在此叠加 middle 边界框（PDF / 图片）。Office 仅展示 middle 几何，不渲染原生版式。</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs";
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs";
+
+    const $ = (id) => document.getElementById(id);
+    const TYPE_COLORS = {
+      text: "#3d9cfd",
+      title: "#56d4c5",
+      image: "#3ecf8e",
+      table: "#e6b84d",
+      chart: "#e6b84d",
+      equation: "#c084fc",
+      interline_equation: "#c084fc",
+      inline_equation: "#c084fc",
+      list: "#3d9cfd",
+      index: "#3d9cfd",
+      code: "#7dd3fc",
+      discarded: "#f07178",
+      other: "#94a3b8",
+    };
+
+    let pollTimer = null;
+    let currentTaskId = null;
+    let lastResult = null;
+    let lastMarkdown = "";
+    let lastContentList = null;
+    let lastMiddle = null;
+    let uploadedFile = null;
+    let pdfDoc = null;
+    let currentPage = 1; // 1-based for pdf.js
+    let selectedBlockKey = null;
+    let objectUrls = [];
+
+    function base() {
+      return $("baseUrl").value.replace(/\/+$/, "");
+    }
+    function log(msg) {
+      const ts = new Date().toLocaleTimeString();
+      $("log").textContent += `[${ts}] ${msg}\n`;
+      $("log").scrollTop = $("log").scrollHeight;
+    }
+    function setPill(text, kind) {
+      const el = $("statusPill");
+      el.textContent = text;
+      el.className = "status-pill" + (kind ? " " + kind : "");
+    }
+    function setError(text) {
+      const box = $("errorBox");
+      if (!text) { box.style.display = "none"; box.textContent = ""; return; }
+      box.style.display = "block";
+      box.textContent = text;
+    }
+    function stopPoll() {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = null;
+      $("btnStop").disabled = true;
+      $("btnParse").disabled = false;
+    }
+    function revokeUrls() {
+      objectUrls.forEach((u) => URL.revokeObjectURL(u));
+      objectUrls = [];
+    }
+    function keepUrl(url) {
+      objectUrls.push(url);
+      return url;
+    }
+
+    async function api(path, options = {}) {
+      const res = await fetch(base() + path, options);
+      const ct = res.headers.get("content-type") || "";
+      let body;
+      if (ct.includes("application/json")) body = await res.json();
+      else if (ct.includes("text/") || ct.includes("markdown")) body = await res.text();
+      else body = await res.blob();
+      if (!res.ok) {
+        const msg =
+          body && typeof body === "object" && body.error
+            ? `${body.error.code}: ${body.error.message}`
+            : `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+      return body;
+    }
+
+    function downloadBlob(blob, filename) {
+      const a = document.createElement("a");
+      a.href = keepUrl(URL.createObjectURL(blob));
+      a.download = filename;
+      a.click();
+    }
+    async function downloadPath(path, filename) {
+      const res = await fetch(base() + path);
+      if (!res.ok) throw new Error(`下载失败 HTTP ${res.status}`);
+      downloadBlob(await res.blob(), filename);
+    }
+
+    function switchTab(name) {
+      document.querySelectorAll("#tabs [data-tab]").forEach((b) => {
+        b.classList.toggle("active", b.dataset.tab === name);
+      });
+      ["md", "cl", "middle", "layout"].forEach((n) => {
+        $("panel-" + n).classList.toggle("hidden", n !== name);
+      });
+      if (name === "layout") renderLayout().catch((e) => log("布局预览失败: " + e.message));
+    }
+
+    document.querySelectorAll("#tabs [data-tab]").forEach((btn) => {
+      btn.onclick = () => switchTab(btn.dataset.tab);
+    });
+
+    function rewriteMdImages(md) {
+      if (!currentTaskId) return md;
+      return md.replace(/!\[[^\]]*\]\((images\/[^)]+)\)/g, (full, rel) => {
+        const name = rel.replace(/^images\//, "");
+        const url = `${base()}/v1/tasks/${currentTaskId}/assets/${encodeURIComponent(name)}`;
+        return full.replace(rel, url);
+      });
+    }
+
+    function renderMarkdown(md) {
+      lastMarkdown = md || "";
+      const html = marked.parse(rewriteMdImages(lastMarkdown));
+      $("mdView").innerHTML = html || "<p>（空）</p>";
+    }
+
+    function renderContentList(list) {
+      lastContentList = list;
+      const root = $("clView");
+      root.innerHTML = "";
+      if (!Array.isArray(list) || !list.length) {
+        root.textContent = "（空或非数组）";
+        return;
+      }
+      list.forEach((item, idx) => {
+        const el = document.createElement("div");
+        el.className = "cl-item";
+        const type = item.type || item.category || "item";
+        const page = item.page_idx != null ? item.page_idx : item.page;
+        const bbox = item.bbox || item.poly || null;
+        let text =
+          item.text ||
+          item.content ||
+          item.table_body ||
+          item.img_path ||
+          item.image_path ||
+          "";
+        if (typeof text !== "string") text = JSON.stringify(text);
+        el.innerHTML = `
+          <div class="t">#${idx} · ${escapeHtml(String(type))}${page != null ? " · page " + page : ""}</div>
+          <div class="c">${escapeHtml(text.slice(0, 2000))}</div>
+          ${bbox ? `<div class="b">bbox: ${escapeHtml(JSON.stringify(bbox))}</div>` : ""}
+        `;
+        root.appendChild(el);
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+    }
+
+    function renderMiddleJson(middle) {
+      lastMiddle = middle;
+      $("middleView").textContent = JSON.stringify(middle, null, 2);
+    }
+
+    function getPagesFromMiddle(middle) {
+      if (!middle) return [];
+      if (Array.isArray(middle.pdf_info)) return middle.pdf_info;
+      if (Array.isArray(middle.pages)) return middle.pages;
+      if (Array.isArray(middle)) return middle;
+      return [];
+    }
+
+    function normalizeType(t) {
+      const x = String(t || "other").toLowerCase();
+      if (x.includes("title")) return "title";
+      if (x.includes("table") || x.includes("chart")) return x.includes("chart") ? "chart" : "table";
+      if (x.includes("image") || x.includes("figure")) return "image";
+      if (x.includes("equation") || x.includes("formula")) return "equation";
+      if (x.includes("discard")) return "discarded";
+      if (x.includes("text") || x === "list" || x === "index" || x === "code") return x === "code" ? "code" : (x === "list" || x === "index" ? x : "text");
+      return "other";
+    }
+
+    function layerEnabled(normType) {
+      const map = {
+        text: "text",
+        title: "title",
+        image: "image",
+        table: "table",
+        chart: "table",
+        equation: "equation",
+        interline_equation: "equation",
+        inline_equation: "equation",
+        list: "text",
+        index: "text",
+        code: "other",
+        discarded: "discarded",
+        other: "other",
+      };
+      const key = map[normType] || "other";
+      const input = document.querySelector(`.layer[data-type="${key}"]`);
+      return input ? input.checked : true;
+    }
+
+    function extractBlocks(page) {
+      const out = [];
+      const pushBlock = (block, source) => {
+        if (!block || typeof block !== "object") return;
+        const bbox = block.bbox || block.bbox_fs;
+        if (!Array.isArray(bbox) || bbox.length < 4) return;
+        const type = block.type || source || "other";
+        const norm = normalizeType(type);
+        let text = "";
+        if (typeof block.content === "string") text = block.content;
+        else if (Array.isArray(block.lines)) {
+          text = block.lines
+            .map((ln) => (ln.spans || []).map((sp) => sp.content || "").join(""))
+            .join("\n");
+        }
+        out.push({
+          type,
+          norm,
+          bbox: bbox.map(Number),
+          text: text.slice(0, 300),
+          source,
+        });
+        if (Array.isArray(block.blocks)) {
+          block.blocks.forEach((b) => pushBlock(b, type));
+        }
+      };
+
+      ["para_blocks", "preproc_blocks", "images", "tables", "interline_equations", "blocks"].forEach((key) => {
+        const arr = page[key];
+        if (Array.isArray(arr)) arr.forEach((b) => pushBlock(b, key.replace(/s$/, "")));
+      });
+      if (Array.isArray(page.discarded_blocks)) {
+        page.discarded_blocks.forEach((b) => {
+          const bb = { ...b, type: b.type || "discarded" };
+          pushBlock(bb, "discarded");
+        });
+      }
+      return out;
+    }
+
+    /** Convert bbox into canvas pixel coords. Supports absolute page coords or 0..1000 normalized. */
+    function bboxToCanvas(bbox, pageW, pageH, canvasW, canvasH) {
+      let [x0, y0, x1, y1] = bbox.map(Number);
+      const maxV = Math.max(Math.abs(x0), Math.abs(y0), Math.abs(x1), Math.abs(y1));
+      // content_list-style normalized coords when values stay in 0..1000 but page is larger
+      if (maxV <= 1000.5 && Math.max(pageW, pageH) > 1000) {
+        x0 = (x0 / 1000) * pageW;
+        y0 = (y0 / 1000) * pageH;
+        x1 = (x1 / 1000) * pageW;
+        y1 = (y1 / 1000) * pageH;
+      }
+      const sx = canvasW / pageW;
+      const sy = canvasH / pageH;
+      return [x0 * sx, y0 * sy, x1 * sx, y1 * sy];
+    }
+
+    function drawBoxes(ctx, blocks, pageW, pageH, canvasW, canvasH, activeKey) {
+      ctx.clearRect(0, 0, canvasW, canvasH);
+      blocks.forEach((b, i) => {
+        if (!layerEnabled(b.norm)) return;
+        const [x0, y0, x1, y1] = bboxToCanvas(b.bbox, pageW, pageH, canvasW, canvasH);
+        const w = Math.max(1, x1 - x0);
+        const h = Math.max(1, y1 - y0);
+        const color = TYPE_COLORS[b.norm] || TYPE_COLORS.other;
+        const key = `${b.norm}-${i}`;
+        ctx.lineWidth = key === activeKey ? 3 : 1.5;
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color + (key === activeKey ? "55" : "22");
+        ctx.fillRect(x0, y0, w, h);
+        ctx.strokeRect(x0, y0, w, h);
+        ctx.font = "11px sans-serif";
+        ctx.fillStyle = color;
+        ctx.fillText(b.type || b.norm, x0 + 2, Math.max(10, y0 - 3));
+      });
+    }
+
+    function fillBlockSide(blocks, pageIdx) {
+      const side = $("blockSide");
+      side.innerHTML = "";
+      if (!blocks.length) {
+        side.innerHTML = `<div class="hint">第 ${pageIdx + 1} 页无块</div>`;
+        return;
+      }
+      blocks.forEach((b, i) => {
+        if (!layerEnabled(b.norm)) return;
+        const key = `${b.norm}-${i}`;
+        const item = document.createElement("div");
+        item.className = "item" + (selectedBlockKey === key ? " active" : "");
+        item.innerHTML = `
+          <div class="type" style="color:${TYPE_COLORS[b.norm] || TYPE_COLORS.other}">${escapeHtml(b.type)} · #${i}</div>
+          <div class="bbox">${escapeHtml(JSON.stringify(b.bbox.map((n) => Math.round(n * 10) / 10)))}</div>
+          <div>${escapeHtml((b.text || "").slice(0, 120))}</div>
+        `;
+        item.onclick = () => {
+          selectedBlockKey = key;
+          fillBlockSide(blocks, pageIdx);
+          // redraw current visible pages
+          document.querySelectorAll(".page-wrap").forEach((wrap) => {
+            const canvas = wrap.querySelector("canvas.box-canvas");
+            const meta = wrap._meta;
+            if (!canvas || !meta) return;
+            drawBoxes(
+              canvas.getContext("2d"),
+              meta.blocks,
+              meta.pageW,
+              meta.pageH,
+              canvas.width,
+              canvas.height,
+              selectedBlockKey
+            );
+          });
+        };
+        side.appendChild(item);
+      });
+    }
+
+    async function createPageWrapFromCanvas(pageCanvas, pageW, pageH, blocks, pageIdx) {
+      const wrap = document.createElement("div");
+      wrap.className = "page-wrap";
+      const label = document.createElement("div");
+      label.className = "page-label";
+      label.textContent = `Page ${pageIdx + 1}`;
+      const box = document.createElement("canvas");
+      box.className = "box-canvas";
+      box.width = pageCanvas.width;
+      box.height = pageCanvas.height;
+      pageCanvas.className = "page-canvas";
+      wrap.appendChild(label);
+      wrap.appendChild(pageCanvas);
+      wrap.appendChild(box);
+      wrap._meta = { pageW, pageH, blocks, pageIdx };
+      drawBoxes(box.getContext("2d"), blocks, pageW, pageH, box.width, box.height, selectedBlockKey);
+      return wrap;
+    }
+
+    async function createPageWrapFromImage(imgUrl, pageW, pageH, blocks, pageIdx) {
+      const img = new Image();
+      img.className = "page-img";
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = imgUrl;
+      });
+      const wrap = document.createElement("div");
+      wrap.className = "page-wrap";
+      const label = document.createElement("div");
+      label.className = "page-label";
+      label.textContent = `Page ${pageIdx + 1}`;
+      const box = document.createElement("canvas");
+      box.className = "box-canvas";
+      // match displayed size after layout: use natural size for drawing, CSS scales both
+      const maxW = 900;
+      const scale = Math.min(1, maxW / img.naturalWidth);
+      const cw = Math.round(img.naturalWidth * scale);
+      const ch = Math.round(img.naturalHeight * scale);
+      img.width = cw;
+      img.height = ch;
+      box.width = cw;
+      box.height = ch;
+      wrap.appendChild(label);
+      wrap.appendChild(img);
+      wrap.appendChild(box);
+      const pw = pageW || img.naturalWidth;
+      const ph = pageH || img.naturalHeight;
+      wrap._meta = { pageW: pw, pageH: ph, blocks, pageIdx };
+      drawBoxes(box.getContext("2d"), blocks, pw, ph, cw, ch, selectedBlockKey);
+      return wrap;
+    }
+
+    async function renderPdfPage(pageNum, pageInfo) {
+      const page = await pdfDoc.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 1.3 });
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const pageW = pageInfo?.page_size?.[0] || viewport.width / 1.3;
+      const pageH = pageInfo?.page_size?.[1] || viewport.height / 1.3;
+      const blocks = extractBlocks(pageInfo || {});
+      return createPageWrapFromCanvas(canvas, pageW, pageH, blocks, pageNum - 1);
+    }
+
+    async function ensurePdf() {
+      if (pdfDoc) return pdfDoc;
+      if (!uploadedFile || !/\.pdf$/i.test(uploadedFile.name)) return null;
+      const buf = await uploadedFile.arrayBuffer();
+      pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
+      return pdfDoc;
+    }
+
+    async function renderLayout() {
+      const stack = $("pageStack");
+      stack.innerHTML = "";
+      selectedBlockKey = null;
+      const pages = getPagesFromMiddle(lastMiddle);
+      if (!uploadedFile) {
+        stack.innerHTML = `<div class="hint">没有本地上传文件，无法叠加预览。请重新选择文件并解析。</div>`;
+        return;
+      }
+      if (!pages.length) {
+        stack.innerHTML = `<div class="hint">middle.json 中未找到 pdf_info/pages。</div>`;
+        return;
+      }
+
+      const name = uploadedFile.name.toLowerCase();
+      const showAll = $("showAllPages").checked;
+
+      if (name.endsWith(".pdf")) {
+        await ensurePdf();
+        const total = pdfDoc.numPages;
+        $("pageInfo").textContent = `页 ${currentPage} / ${total}`;
+        const indices = showAll
+          ? [...Array(total).keys()].map((i) => i + 1)
+          : [Math.min(Math.max(currentPage, 1), total)];
+        for (const p of indices) {
+          const info = pages.find((x) => (x.page_idx ?? 0) === p - 1) || pages[p - 1] || {};
+          const wrap = await renderPdfPage(p, info);
+          stack.appendChild(wrap);
+          if (!showAll) fillBlockSide(extractBlocks(info), p - 1);
+        }
+        if (showAll) {
+          fillBlockSide(extractBlocks(pages[currentPage - 1] || {}), currentPage - 1);
+        }
+        $("layoutHint").textContent = `PDF 预览：${total} 页；边界框来自 middle.para_blocks / images / tables 等。`;
+        return;
+      }
+
+      if (/\.(png|jpe?g|tif{1,2}|bmp|webp)$/i.test(name)) {
+        const url = keepUrl(URL.createObjectURL(uploadedFile));
+        const info = pages[0] || {};
+        const pageW = info.page_size?.[0];
+        const pageH = info.page_size?.[1];
+        const blocks = extractBlocks(info);
+        const wrap = await createPageWrapFromImage(url, pageW, pageH, blocks, 0);
+        stack.appendChild(wrap);
+        fillBlockSide(blocks, 0);
+        $("pageInfo").textContent = `页 1 / 1`;
+        $("layoutHint").textContent = "图片预览：使用上传图 + middle 第 0 页几何。";
+        return;
+      }
+
+      // Office: geometry list only + blank canvas sized by page_size
+      $("layoutHint").textContent =
+        "Office 文件无法在浏览器中还原原生版式；下方按 middle 的 page_size 绘制空白页并叠加边界框。";
+      const total = pages.length;
+      $("pageInfo").textContent = `页 ${currentPage} / ${total}`;
+      const indices = showAll ? pages.map((_, i) => i) : [Math.min(Math.max(currentPage, 1), total) - 1];
+      for (const idx of indices) {
+        const info = pages[idx] || {};
+        const pageW = info.page_size?.[0] || 595;
+        const pageH = info.page_size?.[1] || 842;
+        const scale = Math.min(1.2, 900 / pageW);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(pageW * scale);
+        canvas.height = Math.round(pageH * scale);
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "14px sans-serif";
+        ctx.fillText(`Office page ${idx + 1} (geometry only)`, 16, 28);
+        const blocks = extractBlocks(info);
+        const wrap = await createPageWrapFromCanvas(canvas, pageW, pageH, blocks, idx);
+        stack.appendChild(wrap);
+        if (!showAll) fillBlockSide(blocks, idx);
+      }
+    }
+
+    $("btnPrevPage").onclick = async () => {
+      currentPage = Math.max(1, currentPage - 1);
+      await renderLayout();
+    };
+    $("btnNextPage").onclick = async () => {
+      const pages = getPagesFromMiddle(lastMiddle);
+      const max = pdfDoc ? pdfDoc.numPages : Math.max(1, pages.length);
+      currentPage = Math.min(max, currentPage + 1);
+      await renderLayout();
+    };
+    $("showAllPages").onchange = () => renderLayout();
+    document.querySelectorAll(".layer").forEach((el) => {
+      el.onchange = () => renderLayout();
+    });
+
+    $("btnHealth").onclick = async () => {
+      try {
+        const body = await api("/v1/health");
+        $("healthLine").textContent = `健康: ${JSON.stringify(body)}`;
+        $("healthLine").style.color = "var(--ok)";
+        log("健康检查 OK");
+      } catch (e) {
+        $("healthLine").textContent = `失败: ${e.message}`;
+        $("healthLine").style.color = "var(--err)";
+        log("健康检查失败: " + e.message);
+      }
+    };
+
+    async function loadSuccessArtifacts() {
+      lastResult = await api(`/v1/tasks/${currentTaskId}/result`);
+      const device = lastResult.metadata?.mineru_device || "?";
+      $("engineMeta").textContent = `${lastResult.engine || "mineru"} / ${device}`;
+      if (lastResult.warnings?.length) log("warnings: " + JSON.stringify(lastResult.warnings));
+
+      try {
+        const md = await api(`/v1/tasks/${currentTaskId}/markdown`);
+        renderMarkdown(typeof md === "string" ? md : String(md));
+      } catch (e) {
+        $("mdView").textContent = "Markdown 不可用: " + e.message;
+      }
+
+      try {
+        const cl = await api(`/v1/tasks/${currentTaskId}/content-list`);
+        renderContentList(cl);
+      } catch (e) {
+        $("clView").textContent = "content-list 不可用: " + e.message;
+      }
+
+      try {
+        const middle = await api(`/v1/tasks/${currentTaskId}/middle`);
+        renderMiddleJson(middle);
+      } catch (e) {
+        $("middleView").textContent = "middle 不可用: " + e.message;
+        lastMiddle = null;
+      }
+
+      $("downloadBar").style.display = "flex";
+      pdfDoc = null;
+      currentPage = 1;
+    }
+
+    async function refreshTask() {
+      if (!currentTaskId) return;
+      const body = await api(`/v1/tasks/${currentTaskId}`);
+      $("taskId").textContent = body.task_id || "—";
+      $("fileId").textContent = body.file_id || "—";
+      $("fileName").textContent = body.file_name || uploadedFile?.name || "—";
+      const st = body.status || "unknown";
+      if (st === "succeeded") setPill(st, "ok");
+      else if (st === "failed") setPill(st, "err");
+      else setPill(st, "warn");
+      if (body.error) setError(`${body.error.code || ""} ${body.error.message || ""}`.trim());
+      else setError("");
+      log("状态: " + st);
+      if (st === "succeeded") {
+        stopPoll();
+        await loadSuccessArtifacts();
+      } else if (st === "failed") {
+        stopPoll();
+        $("engineMeta").textContent = body.engine || "mineru";
+      }
+    }
+
+    $("fileInput").onchange = () => {
+      uploadedFile = $("fileInput").files?.[0] || null;
+      pdfDoc = null;
+      revokeUrls();
+    };
+
+    $("btnParse").onclick = async () => {
+      const file = $("fileInput").files?.[0];
+      if (!file) return alert("请先选择文件");
+      uploadedFile = file;
+      pdfDoc = null;
+      stopPoll();
+      lastResult = lastMarkdown = lastContentList = lastMiddle = null;
+      revokeUrls();
+      $("mdView").textContent = "（解析中…）";
+      $("clView").textContent = "（解析中…）";
+      $("middleView").textContent = "（解析中…）";
+      $("pageStack").innerHTML = "";
+      $("downloadBar").style.display = "none";
+      setError("");
+      setPill("submitting", "warn");
+      switchTab("md");
+
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("ocr", $("ocr").value);
+      if ($("device").value) fd.append("device", $("device").value);
+
+      try {
+        log(`上传 ${file.name}`);
+        $("btnParse").disabled = true;
+        const body = await api("/v1/files/parse", { method: "POST", body: fd });
+        currentTaskId = body.task_id;
+        $("taskId").textContent = body.task_id;
+        $("fileId").textContent = body.file_id || "—";
+        $("fileName").textContent = file.name;
+        setPill(body.status || "queued", "warn");
+        log("已创建 " + body.task_id);
+        $("manualTaskId").value = body.task_id;
+        $("btnStop").disabled = false;
+        await refreshTask();
+        const st = $("statusPill").textContent;
+        if (st === "queued" || st === "running") {
+          startPolling();
+        } else {
+          $("btnParse").disabled = false;
+        }
+      } catch (e) {
+        setPill("error", "err");
+        setError(e.message);
+        log("创建失败: " + e.message);
+        $("btnParse").disabled = false;
+      }
+    };
+
+    $("btnStop").onclick = () => { stopPoll(); log("已停止轮询"); };
+
+    function startPolling() {
+      stopPoll();
+      $("btnParse").disabled = true;
+      $("btnStop").disabled = false;
+      const ms = Math.max(500, parseInt($("pollMs").value, 10) || 2000);
+      pollTimer = setInterval(async () => {
+        try { await refreshTask(); } catch (e) { log("轮询失败: " + e.message); }
+      }, ms);
+    }
+
+    $("btnLoadTask").onclick = async () => {
+      const id = ($("manualTaskId").value || "").trim();
+      if (!id) {
+        alert("请输入 task_id");
+        return;
+      }
+      stopPoll();
+      lastResult = lastMarkdown = lastContentList = lastMiddle = null;
+      pdfDoc = null;
+      currentTaskId = id;
+      $("taskId").textContent = id;
+      $("downloadBar").style.display = "none";
+      setError("");
+      setPill("loading", "warn");
+      $("mdView").textContent = "（加载中…）";
+      $("clView").textContent = "（加载中…）";
+      $("middleView").textContent = "（加载中…）";
+      $("pageStack").innerHTML = "";
+      switchTab("md");
+      try {
+        log("手动加载任务 " + id);
+        await refreshTask();
+        const st = $("statusPill").textContent;
+        if (st === "queued" || st === "running") {
+          log("任务尚未结束，开始轮询");
+          startPolling();
+        } else {
+          $("btnParse").disabled = false;
+        }
+        // keep manual field in sync
+        $("manualTaskId").value = id;
+      } catch (e) {
+        setPill("error", "err");
+        setError(e.message);
+        log("加载任务失败: " + e.message);
+        $("btnParse").disabled = false;
+      }
+    };
+
+    $("manualTaskId").addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") $("btnLoadTask").click();
+    });
+
+    document.querySelectorAll("[data-dl]").forEach((btn) => {
+      btn.onclick = async () => {
+        if (!currentTaskId) return;
+        const kind = btn.dataset.dl;
+        const map = {
+          result: [`/v1/tasks/${currentTaskId}/result`, `${currentTaskId}-result.json`],
+          markdown: [`/v1/tasks/${currentTaskId}/markdown`, `${currentTaskId}.md`],
+          "content-list": [`/v1/tasks/${currentTaskId}/content-list`, `${currentTaskId}-content_list.json`],
+          middle: [`/v1/tasks/${currentTaskId}/middle`, `${currentTaskId}-middle.json`],
+        };
+        try {
+          await downloadPath(...map[kind]);
+        } catch (e) {
+          alert(e.message);
+        }
+      };
+    });
+
+    const saved = localStorage.getItem("docparse_test_base");
+    if (saved) $("baseUrl").value = saved;
+    $("baseUrl").addEventListener("change", () => {
+      localStorage.setItem("docparse_test_base", $("baseUrl").value);
+    });
+  </script>
+</body>
+</html>

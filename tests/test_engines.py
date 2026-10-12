@@ -106,6 +106,69 @@ def test_auto_device_falls_back_from_npu_to_cpu(tmp_path: Path, monkeypatch: pyt
     assert "simulated npu failure" in artifacts.metadata["mineru_npu_fallback_reason"]
 
 
+def test_env_for_device_cpu_forces_mineru_device_mode():
+    engine = MinerUEngine()
+    overrides, unset = engine._env_for_device("cpu")
+    assert overrides["MINERU_DEVICE_MODE"] == "cpu"
+    assert overrides["TORCH_DEVICE_BACKEND_AUTOLOAD"] == "0"
+    assert "ASCEND_RT_VISIBLE_DEVICES" in unset
+
+
+def test_env_for_device_npu_sets_mineru_device_mode():
+    engine = MinerUEngine()
+    overrides, unset = engine._env_for_device("npu")
+    assert overrides["MINERU_DEVICE_MODE"] == "npu"
+    assert unset == []
+
+
+def test_cpu_fallback_passes_mineru_device_mode_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(
+        "docparse_service.engines.is_npu_available",
+        lambda disable_probe=False: True,
+    )
+    seen: list[dict] = []
+
+    def capture_run(command, env_overrides=None, unset_env=None):
+        seen.append(
+            {
+                "command": list(command),
+                "env_overrides": dict(env_overrides or {}),
+                "unset_env": list(unset_env or []),
+            }
+        )
+        out = None
+        for i, arg in enumerate(command):
+            if arg == "-o" and i + 1 < len(command):
+                out = Path(command[i + 1])
+                break
+        assert out is not None
+        if "_npu" in out.name:
+            raise RuntimeError("simulated npu failure")
+        stem = "demo"
+        method = "auto"
+        target = out / stem / method
+        target.mkdir(parents=True, exist_ok=True)
+        (target / f"{stem}.md").write_text("# Demo markdown\n", encoding="utf-8")
+        (target / f"{stem}_content_list.json").write_bytes(b"[]")
+        (target / f"{stem}_middle.json").write_bytes(b"{}")
+        (target / "images").mkdir(exist_ok=True)
+
+    monkeypatch.setattr("docparse_service.engines.run_engine_command", capture_run)
+    input_path = tmp_path / "demo.pdf"
+    input_path.write_bytes(b"%PDF-1.4")
+    engine = MinerUEngine(command=_fake_mineru_command(tmp_path), device="auto")
+    artifacts = engine.parse(task_id="task-env", input_path=input_path, ocr=OcrMode.AUTO)
+
+    assert artifacts.metadata["mineru_device"] == "cpu"
+    assert len(seen) == 2
+    assert seen[0]["env_overrides"]["MINERU_DEVICE_MODE"] == "npu"
+    assert seen[1]["env_overrides"]["MINERU_DEVICE_MODE"] == "cpu"
+    assert "ASCEND_RT_VISIBLE_DEVICES" in seen[1]["unset_env"]
+    assert "--device" in seen[1]["command"] or "-d" in seen[1]["command"]
+
+
 def test_missing_command_raises_without_placeholder(tmp_path: Path):
     input_path = tmp_path / "demo.pdf"
     input_path.write_bytes(b"%PDF-1.4")

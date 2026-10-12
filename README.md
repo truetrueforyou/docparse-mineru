@@ -40,15 +40,19 @@ Or let compose build the runtime layer after the base tag exists.
 
 ## Ascend start (no privileged by default)
 
-Generate a host-local NPU device override (not committed), then start:
+Generate a host-local NPU device override (not committed), then start.
+Default **auto-picks an idle host card** (via `npu-smi`: no processes, lowest HBM), maps it to container `/dev/davinci0`, and sets `ASCEND_RT_VISIBLE_DEVICES=0`:
 
 ```bash
-./scripts/render_npu_compose_override.sh
+./scripts/render_npu_compose_override.sh      # auto
+./scripts/render_npu_compose_override.sh 3    # force card 3
 docker-compose -f docker-compose.runtime.yml -f docker-compose.npu.override.yml up -d --build
 curl http://127.0.0.1:18012/v1/health
 ```
 
-The compose file mounts `/usr/local/Ascend` read-only and uses `security_opt: no-new-privileges:true`. It does **not** set `privileged: true`.
+Legacy passthrough of all host cards: `ALL=1 ./scripts/render_npu_compose_override.sh`.
+
+The compose file mounts **only** `/usr/local/Ascend/driver` (for `libascend_hal.so`) and uses `security_opt: no-new-privileges:true`. Do **not** bind-mount the entire `/usr/local/Ascend` tree over the image toolkit. It does **not** set `privileged: true`.
 
 ## Smoke
 
@@ -75,17 +79,15 @@ Per task under `tasks/{task_id}/`:
 
 ## API
 
+完整接口说明与端到端示例见 **[docs/USAGE.md](docs/USAGE.md)**。
+
+独立可视化测试页（不挂载到服务，浏览器直接打开）：**[tools/test-console.html](tools/test-console.html)**。
+
 ```bash
 curl -X POST http://127.0.0.1:18012/v1/files/parse \
   -F "file=@sample.pdf" \
   -F "ocr=auto"
-
-curl http://127.0.0.1:18012/v1/tasks/{task_id}
-curl http://127.0.0.1:18012/v1/tasks/{task_id}/markdown
-curl http://127.0.0.1:18012/v1/tasks/{task_id}/content-list
-curl http://127.0.0.1:18012/v1/tasks/{task_id}/middle
 ```
-
 ## Notes
 
 - Device selection: `DOCPARSE_MINERU_DEVICE=auto|npu|cpu` with pipeline extra args for CPU/NPU.

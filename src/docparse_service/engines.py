@@ -34,10 +34,17 @@ def is_npu_available(disable_probe: bool = False) -> bool:
     return any(dev_root.glob("davinci[0-9]*"))
 
 
-def run_engine_command(command: list[str], env_overrides: dict[str, str] | None = None) -> None:
+def run_engine_command(
+    command: list[str],
+    env_overrides: dict[str, str] | None = None,
+    *,
+    unset_env: list[str] | None = None,
+) -> None:
     command_env = os.environ.copy()
     if env_overrides:
         command_env.update(env_overrides)
+    for key in unset_env or []:
+        command_env.pop(key, None)
     process = subprocess.run(
         command,
         capture_output=True,
@@ -214,14 +221,33 @@ class MinerUEngine:
         ]
         cmd.extend(self._split_args(self._extra_args_for_device(device)))
         cmd.extend(self._split_args(self.extra_args))
-        env = {"TORCH_DEVICE_BACKEND_AUTOLOAD": "0"} if device == "cpu" else {}
-        run_engine_command(cmd, env_overrides=env)
+        env_overrides, unset_env = self._env_for_device(device)
+        run_engine_command(cmd, env_overrides=env_overrides, unset_env=unset_env)
         return collect_mineru_artifacts(
             output_dir,
             stem=input_path.stem,
             method=method,
             device=device,
         )
+
+    def _env_for_device(self, device: str) -> tuple[dict[str, str], list[str]]:
+        """Build env that MinerU 3.4 actually honors for device selection.
+
+        MinerU pipeline reads ``MINERU_DEVICE_MODE`` in ``get_device()`` before
+        auto-detecting torch_npu. CLI ``-d cpu`` alone is not reliable on Ascend
+        images where NPU is always visible; ``TORCH_DEVICE_BACKEND_AUTOLOAD=0``
+        only suppresses backend autoload and does not force CPU.
+        """
+        if device == "cpu":
+            return (
+                {
+                    "MINERU_DEVICE_MODE": "cpu",
+                    "TORCH_DEVICE_BACKEND_AUTOLOAD": "0",
+                },
+                # Hide host/container NPU visibility inherited from compose.
+                ["ASCEND_RT_VISIBLE_DEVICES"],
+            )
+        return ({"MINERU_DEVICE_MODE": "npu"}, [])
 
     def _select_device(self, device_override: str | None = None) -> str:
         configured = (device_override if device_override is not None else self.device).lower().strip()
